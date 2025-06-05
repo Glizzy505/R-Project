@@ -1,0 +1,271 @@
+
+---
+title: 'Breast Cancer Diagnosis: Data Analysis and Prediction'
+author: "By Alexis"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# set working directory
+setwd("C:/Users/uzoeg/Downloads/archive (3)/")
+```
+---
+
+# Load necessary libraries
+```{r}
+
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(e1071)    # For SVM
+library(pROC)     # For ROC Curve
+library(ggpubr)   # For ANOVA visualization
+```
+---
+
+# Load the Data
+
+```{r}
+# Load dataset
+data <- read.csv("Breast_cancer_data.csv")  
+
+# View first few rows
+head(data)
+
+# Structure of the dataset
+str(data)
+
+# Check missing values
+sum(is.na(data))
+```
+
+---
+
+# Data Preprocessing
+
+```{r}
+ # Convert diagnosis to factor
+data$diagnosis <- as.factor(data$diagnosis)
+
+# Summary after conversion
+table(data$diagnosis)
+```
+
+---
+
+# Normalize the Data
+
+```{r}
+# Normalization (excluding diagnosis column)
+preProc <- preProcess(data[, 1:ncol(data)-1], method = c("center", "scale"))
+data_norm <- predict(preProc, data)
+
+# Combine with diagnosis
+data_norm$diagnosis <- data$diagnosis
+
+# Check normalized data
+head(data_norm)
+```
+
+---
+
+# ANOVA Test
+
+```{r}
+# Calculate the mean of each feature grouped by diagnosis
+feature_means_by_diagnosis <- data %>%
+  group_by(diagnosis) %>%
+  summarise(
+    mean_radius = mean(mean_radius),
+    mean_texture = mean(mean_texture),
+    mean_perimeter = mean(mean_perimeter),
+    mean_area = mean(mean_area),
+    mean_smoothness = mean(mean_smoothness)
+  )
+
+# View the result
+feature_means_by_diagnosis
+
+
+# Perform ANOVA 
+anova_result <- aov(mean_radius ~ diagnosis, data = data_norm)
+summary(anova_result)
+
+anova_result <- aov(mean_texture ~ diagnosis, data = data_norm)
+summary(anova_result)
+
+anova_result <- aov(mean_perimeter ~ diagnosis, data = data_norm)
+summary(anova_result)
+
+anova_result <- aov(mean_area ~ diagnosis, data = data_norm)
+summary(anova_result)
+
+anova_result <- aov(mean_smoothness ~ diagnosis, data = data_norm)
+summary(anova_result)
+```
+
+---
+
+# Data Visualization
+
+```{r}
+# Plot histograms of features BEFORE normalization
+data %>%
+  select(mean_radius, mean_texture, mean_perimeter, mean_area, mean_smoothness) %>%
+  gather(key = "Feature", value = "Value") %>%
+  ggplot(aes(x = Value, fill = Feature)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  facet_wrap(~Feature, scales = "free") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Histograms of Features Before Normalization")
+
+```
+
+
+```{r}
+# Plot histograms of selected features normalization
+data_norm %>%
+  select(mean_radius, mean_texture, mean_perimeter, mean_area, mean_smoothness) %>%
+  gather(key = "Feature", value = "Value") %>%
+  ggplot(aes(x = Value, fill = Feature)) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity") +
+  facet_wrap(~Feature, scales = "free") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Histograms of Features After Normalization")
+
+```
+
+```{r}
+# Histogram of mean radius by diagnosis
+ggplot(data_norm, aes(x = mean_radius, fill = diagnosis)) +
+  geom_histogram(alpha = 0.7, position = "identity", bins = 30) +
+  labs(title = "Distribution of Mean Radius by Diagnosis", x = "Mean Radius", y = "Count")
+
+# Histogram of mean perimeter by diagnosis
+ggplot(data_norm, aes(x = mean_perimeter, fill = diagnosis)) +
+  geom_histogram(alpha = 0.7, position = "identity", bins = 30) +
+  labs(title = "Distribution of Mean Perimeter by Diagnosis", x = "Mean perimeter", y = "Count")
+
+# Boxplot of mean area by diagnosis
+ggplot(data_norm, aes(x = diagnosis, y = mean_area, fill = diagnosis)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Mean Area by Diagnosis", x = "Diagnosis", y = "Mean area")
+
+# Boxplot of mean texture by diagnosis
+ggplot(data_norm, aes(x = diagnosis, y = mean_texture, fill = diagnosis)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Mean Texture by Diagnosis", x = "Diagnosis", y = "Mean Texture")
+
+# Boxplot of mean smoothness by diagnosis
+ggplot(data_norm, aes(x = diagnosis, y = mean_smoothness, fill = diagnosis)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Mean Smoothness by Diagnosis", x = "Diagnosis", y = "Mean snoothness")
+
+# Correlation heatmap (optional beauty)
+library(corrplot)
+corr_data <- cor(data_norm[,1:(ncol(data_norm)-1)])
+corrplot(corr_data, method = "color")
+```
+
+---
+
+# Train-Test Split
+
+```{r}
+set.seed(123)
+splitIndex <- createDataPartition(data_norm$diagnosis, p = 0.7, list = FALSE)
+train <- data_norm[splitIndex, ]
+test <- data_norm[-splitIndex, ]
+```
+
+---
+
+# Model 1 - Logistic Regression
+
+```{r}
+# Train Logistic Regression Model
+log_model <- glm(diagnosis ~ ., data = train, family = binomial)
+
+# Predict
+log_preds <- predict(log_model, newdata = test, type = "response")
+log_preds_class <- ifelse(log_preds > 0.5, 1, 0)
+log_preds_class <- as.factor(log_preds_class)
+
+# Confusion Matrix
+confusionMatrix(log_preds_class, test$diagnosis)
+
+# ROC Curve
+roc_obj_log <- roc(as.numeric(as.character(test$diagnosis)), as.numeric(log_preds))
+```
+
+```{r}
+# Create a data frame for ggplot
+roc_df <- data.frame(
+  TPR = rev(roc_obj_log$sensitivities),  # True Positive Rate
+  FPR = rev(1 - roc_obj_log$specificities)  # False Positive Rate
+)
+
+# Plot ROC curve using ggplot
+ggplot(roc_df, aes(x = FPR, y = TPR)) +
+  geom_line(color = "blue", size = 1) +
+  geom_abline(linetype = "dashed", color = "red") +  # Reference line (no-skill)
+  labs(
+    title = paste0("Logistic Regression ROC Curve (AUC = ", round(auc(roc_obj_log), 3), ")"),
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  theme_minimal()
+```
+
+---
+
+# Model 2 - SVM Classifier
+
+```{r}
+# Train SVM
+svm_model <- svm(diagnosis ~ ., data = train, kernel = "radial", type = "C-classification")
+
+# Predict
+svm_preds <- predict(svm_model, newdata = test)
+
+# Confusion Matrix
+confusionMatrix(svm_preds, test$diagnosis)
+
+# ROC Curve
+svm_probs <- attr(predict(svm_model, test, decision.values = TRUE), "decision.values")
+roc_obj_svm <- roc(as.numeric(as.character(test$diagnosis)), svm_probs)
+
+```
+
+
+
+```{r}
+# Create dataframe for ggplot
+roc_svm_df <- data.frame(
+  TPR = rev(roc_obj_svm$sensitivities),
+  FPR = rev(1 - roc_obj_svm$specificities)
+)
+
+# Plot ROC Curve using ggplot2
+ggplot(roc_svm_df, aes(x = FPR, y = TPR)) +
+  geom_line(color = "darkgreen", size = 1.2) +
+  geom_abline(linetype = "dashed", color = "red") +
+  labs(
+    title = paste0("SVM ROC Curve (AUC = ", round(auc(roc_obj_svm), 3), ")"),
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+
+
+
